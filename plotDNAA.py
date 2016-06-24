@@ -10,7 +10,7 @@ sns.set(style="ticks",font_scale=1.5)
 
 IMAGE_DEST='./images/'
 GLOB_COL_WRAP = 2 # number of columns per line for small multiples
-OUTPUT_FORMAT = 'png'
+OUTPUT_FORMAT = 'pdf'
 SHOW_PLOTS = False
 
 def plot_scatterBox(df,xData,yData,title,fileName,plotAspect=1,colorVal=None):
@@ -44,7 +44,7 @@ def process_plot(fileName):
 # Fetch in data and do some cleanup
 singles = pd.read_csv('singles.csv')
 singles['C/E'] = singles['Calculated mass (ng)']/singles['Certified mass (ng)']
-singles['UncertaintyProp'] = np.sqrt(singles['Certified uncertainty']**2 + singles['Calculated uncertainty']**2)
+singles['UncertaintyProp'] = singles['C/E']*np.sqrt(singles['Certified uncertainty']**2 + singles['Calculated uncertainty']**2)
 
 # Not using category type right now, but may in the future
 #singles['Isotope'] = singles['Isotope'].astype('category')
@@ -88,7 +88,7 @@ binaries = pd.read_csv('binaries.csv')
 isCalibrated = (binaries["Location"] == "PT-2 (Corrected)")
 
 binaries['C/E'] = binaries['Calculated mass (ng)']/binaries['Certified mass (ng)']
-binaries['UncertaintyProp'] = np.sqrt(binaries['Certified mass uncert.']**2 + binaries['Calculated mass uncert.']**2)
+binaries['UncertaintyProp'] = binaries['C/E']*np.sqrt(binaries['Certified mass uncert.']**2 + binaries['Calculated mass uncert.']**2)
 
 binaries = binaries.sort_values(by=['Isotope','Sample ID'],ascending=True)
 
@@ -143,7 +143,7 @@ process_plot('binaries')
 df_swipes = pd.read_csv('IAEA_swipes.csv')
 
 df_swipes['C/E'] = df_swipes['Calculated mass (ng)']/df_swipes['Certified mass (ng)']
-df_swipes['UncertaintyProp'] = np.sqrt(df_swipes['Certified mass uncertainty']**2 + df_swipes['Calculated mass uncertainty']**2)
+df_swipes['UncertaintyProp'] = df_swipes['C/E']*np.sqrt(df_swipes['Certified mass uncertainty']**2 + df_swipes['Calculated mass uncertainty']**2)
 
 df_swipes = df_swipes.sort_values(by=['Isotope','Sample'],ascending=True)
 
@@ -230,7 +230,7 @@ for df in dataSets:
 		CE_mean = np.mean(df[nucLocs]["C/E"])
 		# Sum the square of each uncertainty value for each measurement; 
 		# then take the square root to get propagated uncertainty
-		CE_propUnc = math.sqrt(sum(map(lambda x:x*x,df[nucLocs]["Uncertainty"])))
+		CE_propUnc = CE_mean*math.sqrt(sum(map(lambda x:x*x,df[nucLocs]["Uncertainty"])))
 
 		tmpUnc = CE_propUnc
 		dfTmp = pd.DataFrame([[nuc,df[nucLocs]["Parent"].iloc[0],CE_mean,tmpUnc]],columns=CE_cols)
