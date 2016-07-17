@@ -9,8 +9,8 @@ import math
 sns.set(style="ticks",font_scale=1.5)
 
 IMAGE_DEST='./images/'
-GLOB_COL_WRAP = 2 # number of columns per line for small multiples
-OUTPUT_FORMAT = 'pdf'
+GLOB_COL_WRAP = 4 # number of columns per line for small multiples
+OUTPUT_FORMAT = 'png'
 SHOW_PLOTS = False
 
 def plot_scatterBox(df,xData,yData,title,fileName,plotAspect=1,colorVal=None):
@@ -26,6 +26,12 @@ def plot_scatterBox(df,xData,yData,title,fileName,plotAspect=1,colorVal=None):
 	fig = sns_plot.get_figure()
 	process_plot(fileName)
 
+def outline_markers(g):
+	for ax in g.axes:
+		for mk in ax.collections:
+			mk.set_edgecolor('black')
+			mk.set_linewidth(0.075)
+			
 def process_plot(fileName):
 
 	sns.despine(top=True)
@@ -36,6 +42,19 @@ def process_plot(fileName):
 	else:
 		plt.savefig(IMAGE_DEST + fileName + '.' + OUTPUT_FORMAT)
 		plt.close()		
+
+def facetErrorBars(x, y, sigma, cDict, color=None, label=None, **kwargs):
+	# Add error bars to a FacetGrid / FactorPlot and match the bar color to the hue
+	data = kwargs.pop("data")
+	hue = kwargs.pop("hue")
+
+	ebColors = []
+	for eval in data[hue].unique():
+		ebColor = cDict[eval]
+		xVals = data[x].loc[data[hue] == eval].values
+		yVals = data[y].loc[data[hue] == eval].values
+		yErrs = data[sigma].loc[data[hue] == eval].values	
+		plt.errorbar(xVals, yVals, xerr=None, yerr=yErrs, ecolor=ebColor, color=None,**kwargs)
 		
 #================================================
 # Singles data plotting
@@ -59,19 +78,21 @@ for index, row in singles.iterrows():
 	sampleNums.append(index%4+1)
 
 singles['SampleNum'] = sampleNums
-
-
+	
 # Plot out small multiples of samples by isotope, with uncertainty
 g = sns.FacetGrid(data=singles,col='Isotope',hue='Location',hue_kws=dict(marker=['s','^','o','v']),
                   hue_order=["PT-1", "PT-2 (Uncorrected)", "PT-2 (Corrected)"],
 				  size=4,col_wrap=GLOB_COL_WRAP,legend_out=False)
-g = (g.map(plt.errorbar,'SampleNum',"C/E",'UncertaintyProp',ls='',ms=9).add_legend())
+g = (g.map(plt.errorbar,'SampleNum',"C/E",'UncertaintyProp',ls='',ms=9,capsize=6,elinewidth=1.5).add_legend())
+
 g.fig.get_axes()[0].legend(loc='lower left')
 (g.set_titles("{col_name}").set_xlabels("Sample"))
 
 # Fix up x-axes to just show samples of interest
 axes = g.axes
 axes[0].set_xlim(0.1,4.9)
+
+#outline_markers(g)
 process_plot('singles')
 
 isCalibrated = (singles["Location"] == "PT-1") | (singles["Location"] == "PT-2 (Corrected)")
@@ -86,6 +107,7 @@ plot_scatterBox(SinglesCalibrated,"Isotope","C/E","Single-isotope measurements",
 #================================================
 binaries = pd.read_csv('binaries.csv')
 isCalibrated = (binaries["Location"] == "PT-2 (Corrected)")
+isPT1 = (binaries["Location"] == "PT-1")
 
 binaries['C/E'] = binaries['Calculated mass (ng)']/binaries['Certified mass (ng)']
 binaries['UncertaintyProp'] = binaries['C/E']*np.sqrt(binaries['Certified mass uncert.']**2 + binaries['Calculated mass uncert.']**2)
@@ -99,9 +121,18 @@ binSamples.name = 'Fissile mass (ng)'
 
 # Define isotope IDs to map out plots
 isoDefs = dict([('Pu-239',0), ('U-233',1), ('U-235',2), ('U-238',3)])
+isoSyms = {'Pu-239' : 's', 'U-233' : '^', 'U-235' : 'o', 'U-238' : 'v'} 
 isoNumbers = []
 fissileMasses = []
 
+# Define a dictionary to consistently map colors / symbols to isotopes
+binSyms = []
+palette = itertools.cycle(sns.color_palette())
+ebDict = { }	
+for iso in binaries['Isotope'].unique():
+	ebDict[iso] = palette.next()
+	binSyms.append(isoSyms[iso])
+	
 for index, row in binaries.iterrows():
 	fissileMasses.append(binSamples[row['Sample ID']])
 	isoNumbers.append(isoDefs[row['Isotope']])
@@ -112,29 +143,48 @@ binaries['IsoNum'] = pd.Series(isoNumbers,index=binaries.index)
 binaries['Fissile mass (ng)'] = pd.Series(fissileMasses,index=binaries.index)
 
 
-# WORKING
 binariesCalib = binaries.loc[isCalibrated]
-g = sns.factorplot(data=binariesCalib,kind='point',col='Sample ID',x='Isotope',y='C/E',hue='Isotope',legend=True,markers=['s','^','o','v'],scale=1.0,size=4,col_wrap=GLOB_COL_WRAP)
 
-myColors = sns.color_palette()
-hexColors = []
-for color in myColors:
-	hexColors.append(matplotlib.colors.rgb2hex(color))
+g = sns.factorplot(data=binariesCalib,kind='point',col='Sample ID',x='Isotope',y='C/E',hue='Isotope',
+   legend=True,markers=binSyms,scale=1.0,size=4,col_wrap=GLOB_COL_WRAP)
 
-binariesPu = binariesCalib.loc[binaries['Isotope'] == "Pu-239"]
-#print(binariesPu['C/E'])
+g.map_dataframe(facetErrorBars,"IsoNum","C/E","UncertaintyProp",ebDict,data=binariesCalib, hue='Isotope',
+	   markeredgecolor='k',ls='',elinewidth=1.5,capsize=6,zorder=0)	   
 
-# This is plotting the whole data set and not just the selection; why?
-# IDEA: Iterate over hexColors and IsoNums; plot each isonum as a different *series*
-g.map(plt.errorbar,"IsoNum","C/E",'UncertaintyProp',data=binariesPu,ls='',ms=0,zorder=0,elinewidth=2,color="gray")
+g.set_xlabels('Isotope').set_titles("{col_name}")
 
+titles = binaries['Fissile mass (ng)'].unique()
+for ax, massTitle in zip(g.axes.flat, titles):
+    ax.set_title("Sample {:s}\nFissile mass: {:.2f} ng".format(ax.get_title(),massTitle) )
+
+#outline_markers(g)
+process_plot('binaries_PT2')
+
+#==========================
+# PT-1 binaries data
+#===========================
+
+# WORKING
+binariesPT1 = binaries.loc[isPT1]
+pt1Syms = []
+for iso in binariesPT1['Isotope'].unique():
+	pt1Syms.append(isoSyms[iso])
+	
+g = sns.factorplot(data=binariesPT1,kind='point',col='Sample ID',x='Isotope',y='C/E',hue='Isotope',
+   legend=True,markers=pt1Syms,scale=1.0,size=4,col_wrap=GLOB_COL_WRAP)
+
+g.map_dataframe(facetErrorBars,"IsoNum","C/E","UncertaintyProp",ebDict,data=binariesPT1, hue='Isotope',
+	   markeredgecolor='k',ls='',elinewidth=1.5,capsize=6,zorder=0)
+	   
 g.set_xlabels('Isotope').set_titles("{col_name}")
   
 titles = binaries['Fissile mass (ng)'].unique()
 for ax, massTitle in zip(g.axes.flat, titles):
     ax.set_title("Sample {:s}\nFissile mass: {:.2f} ng".format(ax.get_title(),massTitle) )
 
-process_plot('binaries')
+#outline_markers(g)
+process_plot('binaries_PT1')
+
 
 #================================================
 # IAEA swipe samples plotting
@@ -147,6 +197,12 @@ df_swipes['UncertaintyProp'] = df_swipes['C/E']*np.sqrt(df_swipes['Certified mas
 
 df_swipes = df_swipes.sort_values(by=['Isotope','Sample'],ascending=True)
 
+iaeaPalette = []
+iaeaSyms = []
+for iso in df_swipes["Isotope"].unique():
+	iaeaPalette.append(ebDict[iso])
+	iaeaSyms.append(isoSyms[iso])
+	
 # Sum up fissile mass of each binary set
 isFissile = (df_swipes['Isotope'] == "U-235") | (df_swipes['Isotope'] == "Pu-239") | (df_swipes['Isotope'] == 'U-233')
 iaeaSamples = df_swipes[isFissile].groupby('Sample')['Certified mass (ng)'].sum()
@@ -165,24 +221,18 @@ for index, row in df_swipes.iterrows():
 df_swipes['IsoNum'] = pd.Series(isoNumbers,index=df_swipes.index)
 # Add total fissile mass to table (for plot titles)
 df_swipes['Fissile mass (ng)'] = pd.Series(fissileMasses,index=df_swipes.index)
-
-
-# WORKING
-g = sns.factorplot(data=df_swipes,kind='point',col='Sample',x='Isotope',y='C/E',hue='Isotope',legend=True,markers=['s','^','o','v'],scale=1.0,size=4,col_wrap=GLOB_COL_WRAP)
-
-myColors = sns.color_palette()
-hexColors = []
-for color in myColors:
-	hexColors.append(matplotlib.colors.rgb2hex(color))
-
-
-g.map(plt.errorbar,"IsoNum","C/E",'UncertaintyProp',data=df_swipes,ls='',ms=0,zorder=0,elinewidth=2,color="gray")
+	
+g = sns.factorplot(data=df_swipes,kind='point',col='Sample',x='Isotope',y='C/E',
+   palette=iaeaPalette,markers=iaeaSyms,hue='Isotope',legend=True,scale=1.0,size=4,col_wrap=GLOB_COL_WRAP)
+g.map_dataframe(facetErrorBars,"IsoNum","C/E","UncertaintyProp",ebDict,data=df_swipes,hue='Isotope',
+	   markeredgecolor='k',ls='',elinewidth=1.5,capsize=6,zorder=0)
 g.set_xlabels('Isotope').set_titles("{col_name}")
   
 titles = df_swipes['Fissile mass (ng)'].unique()
 for ax, massTitle in zip(g.axes.flat, titles):
     ax.set_title("Sample {:s}\nFissile mass: {:.2f} ng".format(ax.get_title(),massTitle) )
 
+#outline_markers(g)
 process_plot('IAEA_swipes')
 
 #================================================
@@ -212,7 +262,6 @@ plot_scatterBox(FP_U233,"Nuclide","C/E","U-233 fission product indicators","U233
 plot_scatterBox(FP_U235,"Nuclide","C/E","U-235 fission product indicators","U235_FP",plotAspect=2.0,colorVal=next(palette))
 
 dataSets = [FP_Pu239, FP_U233, FP_U235]
-palette = itertools.cycle(sns.color_palette())
 
 CE_cols = ["Nuclide","Parent","C/E mean","Uncertainty"]
 dfCE = pd.DataFrame(columns=CE_cols)
@@ -250,9 +299,18 @@ for index, row in dfCE.iterrows():
 
 # Add isotope ID number (for indexing / mapping plots) to table
 dfCE['IsoNum'] = pd.Series(isoNumbers,index=dfCE.index)
+
+ceSyms = []
+for iso in dfCE['Parent'].unique():
+	ceSyms.append(isoSyms[iso])
+
 sns.set(style="ticks",font_scale=2.0)
-g = sns.factorplot(data=dfCE,kind='point',row='Parent',x='Nuclide',y='C/E mean',hue='Parent',legend=True,markers=['s','^','o','v'],scale=1.5,size=5,aspect=3,linestyles='None')
-g = (g.map(plt.errorbar,'IsoNum',"C/E mean",'Uncertainty',ls='',color='grey',ms=0,zorder=0,elinewidth=2.5))
+g = sns.factorplot(data=dfCE,kind='point',row='Parent',x='Nuclide',y='C/E mean',
+   hue='Parent',legend=True,markers=ceSyms,scale=1.5,size=5,aspect=3,linestyles='None')
+g.map_dataframe(facetErrorBars,"IsoNum","C/E mean","Uncertainty",ebDict,data=dfCE, hue='Parent',
+	   markeredgecolor='k',ls='',elinewidth=1.5,capsize=6,zorder=0)
+
+#outline_markers(g)			   
 g.set_xlabels('Nuclide').set_titles("{row_name}")
-		
+
 process_plot('FP_errors')
